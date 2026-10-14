@@ -1,0 +1,17 @@
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+
+# Database exports and local backups
+*.sql.gz
+*.dump
+db-backups/
+database-backups/
+
+# Local/editor/OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini

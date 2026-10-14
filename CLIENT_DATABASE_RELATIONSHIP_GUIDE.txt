@@ -1,0 +1,223 @@
+EASY CLIENT GUIDE: CONNECT USERS, MEMBERS, AND BORROWED BOOKS
+==============================================================
+
+This guide is for someone who does not work with databases every day.
+Follow the steps in order. Do not skip a step.
+
+What this fixes
+---------------
+
+The library system has different records for:
+
+- User: a person who can log in.
+- Member: a person who can receive books.
+- Book: a book in the library.
+- Borrowing: the record created when a member receives a book.
+
+After this update:
+
+1. Every Reader login is connected to one Member record.
+2. Every borrowing is connected to a Member and a Book.
+3. The system remembers which Admin or Librarian issued and received a book.
+
+
+BEFORE STARTING
+---------------
+
+[ ] Make a backup first.
+[ ] Ensure WampServer and MySQL are running.
+[ ] Keep this project folder open.
+
+How to make a backup in phpMyAdmin:
+
+1. Open http://localhost/phpmyadmin in your browser.
+2. Click the lms database in the left menu.
+3. Click Export at the top.
+4. Leave "Quick" selected.
+5. Click Export.
+6. Save the downloaded .sql file somewhere safe.
+
+
+PART 1 - UPDATE THE DATABASE IN PHPMYADMIN
+===========================================
+
+Step 1: Open the database
+-------------------------
+
+1. Open http://localhost/phpmyadmin.
+2. In the left menu, click lms.
+3. Click the SQL tab at the top.
+
+
+Step 2: Check old Reader accounts
+---------------------------------
+
+Copy the following into the large SQL box, then click Go:
+
+SELECT u.id, u.username, u.name, u.member_id
+FROM users u
+LEFT JOIN members m ON m.member_id = u.member_id
+WHERE u.role = 'reader'
+  AND (u.member_id IS NULL OR m.member_id IS NULL);
+
+What to do:
+
+- If no rows are shown, go to Step 4.
+- If rows are shown, each one is a Reader that needs a Member record.
+- Write down the ID, name, and email for each displayed row.
+
+
+Step 3: Connect each old Reader to a Member
+-------------------------------------------
+
+For every row from Step 2, use this example.
+Replace all example values before clicking Go:
+
+INSERT INTO members
+    (member_id, name, address, telephone, email, registration_date)
+VALUES
+    ('M009', 'Reader Name', 'Reader Address', 'Reader Telephone',
+     'reader@email.com', CURDATE());
+
+UPDATE users
+SET member_id = 'M009'
+WHERE id = 5;
+
+Important:
+
+- Replace M009 with a new unused member ID. If M001 to M008 already exist,
+  use M009. If M009 already exists, use M010 instead.
+- Replace Reader Name, Reader Address, Reader Telephone, reader@email.com,
+  and 5 with the real information from the client database.
+- Run the INSERT first, then run the UPDATE.
+- Repeat for every Reader shown in Step 2.
+
+
+Step 4: Add the relationship rules
+----------------------------------
+
+Stay on the SQL tab. Copy ALL of the following code into the SQL box and
+click Go ONE TIME:
+
+ALTER TABLE users
+    ADD UNIQUE INDEX uq_users_member_id (member_id),
+    ADD CONSTRAINT fk_users_member
+        FOREIGN KEY (member_id) REFERENCES members(member_id)
+        ON UPDATE CASCADE ON DELETE SET NULL;
+
+ALTER TABLE borrowings
+    ADD COLUMN issued_by_user_id INT NULL AFTER status,
+    ADD COLUMN returned_by_user_id INT NULL AFTER issued_by_user_id,
+    ADD INDEX idx_borrowings_issued_by_user_id (issued_by_user_id),
+    ADD INDEX idx_borrowings_returned_by_user_id (returned_by_user_id),
+    ADD CONSTRAINT fk_borrowings_issued_by_user
+        FOREIGN KEY (issued_by_user_id) REFERENCES users(id)
+        ON UPDATE CASCADE ON DELETE SET NULL,
+    ADD CONSTRAINT fk_borrowings_returned_by_user
+        FOREIGN KEY (returned_by_user_id) REFERENCES users(id)
+        ON UPDATE CASCADE ON DELETE SET NULL;
+
+If phpMyAdmin says "Duplicate key name" or "Duplicate column name":
+
+- Stop. It means this update was already run fully or partly.
+- Do not run it again.
+- Ask the developer to check the database before continuing.
+
+
+PART 2 - UPDATE THE PHP FILES
+=============================
+
+Step 5: Copy the updated PHP files
+----------------------------------
+
+Copy these files from the updated project into the client's project folder.
+Replace the existing files with the same names:
+
+[ ] admin/users.php
+[ ] admin/issue_book.php
+[ ] admin/return_book.php
+[ ] admin/members.php
+
+These files make the website use the new database relationships.
+
+Important:
+
+- Do not rename the files.
+- Do not copy only part of a file. Replace the whole matching file.
+- Keep a copy of the old client files before replacing them.
+
+
+What each PHP file now does
+---------------------------
+
+admin/users.php
+  When an Admin creates a Reader, the system also creates or connects that
+  Reader's Member record. Admin and Librarian accounts do not need a Member.
+
+admin/issue_book.php
+  Saves the Admin/Librarian who issued the book.
+
+admin/return_book.php
+  Saves the Admin/Librarian who received the returned book.
+
+admin/members.php
+  Stops a Member from being deleted if their borrowing history exists.
+
+
+PART 3 - CHECK THAT IT WORKS
+===========================
+
+Step 6: Test in the website
+---------------------------
+
+Complete these simple tests:
+
+[ ] Log in as Admin.
+[ ] Open Admin > Users.
+[ ] Create a new Reader and enter their name, email, address, telephone,
+    and password.
+[ ] Open Admin > Members and confirm the new Reader appears there.
+[ ] Open Admin > Issue Book and issue a book to that Reader.
+[ ] Open Admin > Return Book and return the same book.
+[ ] Confirm the Reader can log in and see the book in My Account.
+
+
+Step 7: Final database check
+----------------------------
+
+In phpMyAdmin, click lms > SQL. Copy this code and click Go:
+
+SELECT COUNT(*) AS readers_without_members
+FROM users u
+LEFT JOIN members m ON m.member_id = u.member_id
+WHERE u.role = 'reader'
+  AND (u.member_id IS NULL OR m.member_id IS NULL);
+
+The answer must be 0.
+
+Then run this:
+
+SELECT COUNT(*) AS broken_borrowings
+FROM borrowings br
+LEFT JOIN members m ON m.member_id = br.member_id
+LEFT JOIN books b ON b.book_id = br.book_id
+WHERE m.member_id IS NULL OR b.book_id IS NULL;
+
+The answer must also be 0.
+
+
+IF SOMETHING GOES WRONG
+=======================
+
+- If the website shows a database error, restore the backup made at the start.
+- If a Reader cannot borrow a book, check that their Member ID is visible in
+  Admin > Users.
+- If phpMyAdmin shows an error you do not understand, take a screenshot and
+  give it to the developer with this guide.
+
+
+SIMPLE FINAL RESULT
+===================
+
+Reader login -> Member -> Borrowing -> Book
+Admin/Librarian -> Issues or receives the borrowing
